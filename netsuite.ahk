@@ -1,4 +1,5 @@
 ﻿CoordMode, Mouse, Screen  ; Set mouse commands to use screen coordinates
+CoordMode, Pixel, Screen  ; Set colour commands to use screen pixels
 
 #NoEnv
 SendMode Input
@@ -7,6 +8,7 @@ SetWorkingDir %A_ScriptDir%
 skipKey := "s" ;
 resetKey := "r" ;
 multipleKey := "m" ;
+otherKey := "o"
 stop := 0
 
 ; ---- Value Coordinates for the screen - Change these! ----
@@ -20,21 +22,21 @@ global binSearchBarY := 226 ;
 firstBinX := 1027 ;
 firstBinY := 341 ;
 
-global SOInbetweenX := 1072 ;
-global SOInbetweenY := 432 ; 
+global SOInbetweenX := 1073 ;
+global SOInbetweenY := 407 ; 
 
 global searchBarX := 400 ;
 global searchBarY := 140 ;
 
-relatedRecordsX := 410 ;
-relatedRecordsY := 627 ;
+relatedRecordsX := 374 ;
+relatedRecordsY := 600 ;
 
 global startingRecordDateX := 52 ; 
-global startingRecordDateY := 733 ; 
-global distanceBetweenRecords := 23 ; 
+global startingRecordDateY := 697 ; 
+global distanceBetweenRecords := 21 ; 
 
-global startingRecordNumberX := 450 ; set this!
-global startingRecordNumberStatusX := 610 ; set this!
+global startingRecordNumberX := 321 ; 
+global startingRecordNumberStatusX := 458 ;
 
 backButtonX := 991 ;
 backButtonY := 1004 ;
@@ -43,10 +45,10 @@ markButtonX := 200 ;
 markButtonY := 265 ;
 
 shippedX := 200 ;
-shippedY := 335 ;
+shippedY := 320 ;
 
-sendCloudX := 554 ; 
-sendCloudY := 554 ;
+sendCloudX := 835 ; 
+sendCloudY := 558 ;
 
 confirmBarX := 450  ; 
 confirmBarY := 250  ; 
@@ -56,9 +58,27 @@ printConfirmX := 340 ;
 printConfirmY := 1000 ;
 printConfirmColour := "0x525659" ;
 
-binContentX := 1458 ; need to set!
-binContentY := 468 ; need to set!
-binContentColour := "0xEFF1F5" ; set maybe!
+binContentX := 1070 ; maybe set?
+binContentY := 334 ; maybe set?
+binContentColour := "0xEFF1F5" ; maybe set?
+
+yellowIFX := 54 ; need to set!
+yellowIFY := 255 ; need to set!
+yellowIFColour := "0xEDA133" ; need to set!
+
+memoX := 508 ; need to set!
+memoY := 525 ; need to set!
+
+; -- alternate flow variables
+secondBinBtnX := 1324 ; need to set!
+secondBinBtnY := 674 ; need to set!
+
+editBtnX := 64 ; need to set!
+editBtnY := 332 ; need to set!
+
+; TODO, need additional color checking, probably...
+; parcelQuanityX := 454; need to set!
+; parcelQuantityY := 892; need to set!
 
 ; The starting hotkay to start this routine
 !^F2:: 
@@ -75,32 +95,18 @@ Loop
         if (stop)
             break
         
+        Sleep, 100
         Click, %firstBinX%, %firstBinY%
 
         ; load bin contents
-        ; waitForEnterOrTimeout(2)
-
-        ; does not work on my pc...
         waitForColour(binContentX, binContentY, binContentColour)
 
-        copyAndSearchForSO()
-
-        ; TODO: alternate flow if failed (prio: low)
-
-        TrayTip, Check products, and then press enter or 's' if products are wrong
-        ; Wait until the scanner checked the products in the list... or quits
-        Input, pressed, L1
-
-        ; already go back to the previous screen, so it can load...
-        Click %backButtonX%, %backButtonY%
-
-        ; Products missing, or wrong counts
-        if (pressed == skipKey)
-        {
-            waitForEnterOrTimeout(1)
-            highlightSearch()
+        ; find suitable SO record and arrive at that page
+        stickerCnt := findSuitableSORecord()
+        if (stickerCnt == 0)
             break
-        }
+
+        zilverID := getZilverID()
 
         ; click related records
         Sleep, 100 ;
@@ -113,14 +119,20 @@ Loop
             waitForEnter()
         }
 
+        ; sneakily store the Zilver ID on the clipboard
+        clipboard := zilverID
+
         TrayTip, loading IF, 
-        waitForEnterOrTimeout(2.5)
+        waitForColour(yellowIFX, yellowIFY, yellowIFColour)
 
         ; Multiple stickers?
-        if (pressed == multipleKey) 
+        if (stickerCnt > 1) 
         {
-            TrayTip, Setup sticker yourself, then press enter to mark shipped
-            waitForEnter()
+            TrayTip, Setup sticker yourself, waiting for green bar...
+            Click, %editBtnX%, %editBtnY%
+
+            ; needs testing still, otherwise do waitForEnter()
+            waitForColour(confirmBarX, confirmBarY, confirmBarColour) 
             Click %shippedX%, %shippedY% ; the bar moved due to the edit...
         }
         else 
@@ -143,7 +155,9 @@ Loop
         ; actually not on correct page...
         if (color != printConfirmColour)
         {
-            TrayTip, Quitting, not actually on correct page
+            TrayTip, Zilver detected - code already copied - Quitting now
+            Click, %editBtnX%, %editBtnY%
+            stop = true
             break ; break to save the world from this madness
         }
         
@@ -163,13 +177,59 @@ Loop
 
         ; proceed to then next order
     }
+    ; quit entire program, mostly only used during Zilver moments
+    if (stop)
+        break
 }
 return
+
+findSuitableSORecord()
+{
+    global skipKey, resetKey, otherKey, multipleKey
+    copyAndSearchForSO()
+    Loop
+    {
+        TrayTip, Check products, and then press enter or 's' if products are wrong or 'o' to select the other SO in the bin or 'r' if the copy went wrong
+        ; Wait until the scanner checked the products in the list... or quits
+        Input, pressed, L1
+
+        ; Products missing, or wrong counts
+        if (pressed == skipKey)
+        {
+            highlightSearch()
+            return 0
+        }
+
+        if (pressed == resetKey)
+        {
+            copyAndSearchForSO()
+            continue
+        }
+
+        ; select amount of stickers in second prompt
+        if (pressed == multipleKey)
+        {
+            ; TODO
+            ;Input, stickerCnt, L1
+            ;TrayTip, Type the amount of sticker needed
+            ;return stickerCnt
+            return 2
+        }
+
+        ; wrong SO number, so need to select second one in bin
+        if (pressed == otherKey)
+        {
+            selectSecondSO()
+            continue
+        }
+        return 1
+    }
+}
 
 ; wait forever until enter is pressed
 waitForEnter() 
 {
-    global stop 
+    global stop , skipKey
     ; Wait until the whole thing is scanned
     Loop
     {
@@ -193,16 +253,9 @@ waitForEnterOrTimeout(timeoutSeconds)
     return key
 }
 
-copyAndSearchForSO()
+copyAndSearch()
 {
-    global SOInbetweenX, SOInbetweenY, searchBarX, searchBarY
-
-    Clipboard := "" ; Empty the clipboard
-
-    ; Highlight the SO code from the mobile emulator
-    Click, %SOInbetweenX%, %SOInbetweenY%, 3
-
-    ; Copy the SO number and search for it
+    global searchBarX, searchBar
     Send, ^c
     Sleep, 1
     Click %searchBarX%, %searchBarY%
@@ -212,13 +265,52 @@ copyAndSearchForSO()
     Send, {Enter}
 }
 
+selectSecondSO()
+{
+    global SOInbetweenX, SOInbetweenY, secondBinBtnX, secondBinBtnY
+
+    Clipboard := "" ; Empty the clipboard
+
+    ; Highlight the SO code from the mobile emulator again
+    Click, %SOInbetweenX%, %SOInbetweenY%,
+    Sleep, 100
+    Click, %SOInbetweenX%, %SOInbetweenY%,
+    Sleep, 100
+    Click, %SOInbetweenX%, %SOInbetweenY%,
+    Sleep, 100
+
+    ; experimental, select second row
+    Click %secondBinBtnX%, %secondBinBtnY%
+    Sleep, 100
+    ; Copy the SO number and search for it
+    copyAndSearch()
+}
+
+
+copyAndSearchForSO()
+{
+    global SOInbetweenX, SOInbetweenY
+
+    Clipboard := "" ; Empty the clipboard
+
+    ; Highlight the SO code from the mobile emulator
+    Click, %SOInbetweenX%, %SOInbetweenY%
+    Sleep, 100
+    Click, %SOInbetweenX%, %SOInbetweenY%
+    Sleep, 100
+    Click, %SOInbetweenX%, %SOInbetweenY%
+    Sleep, 100
+
+    ; Copy the SO number and search for it
+    copyAndSearch()
+}
+
 ; wait until the pixel at x, y show the target colour
 waitForColour(pixelX, pixelY, targetColour)
 {
     Loop
     {
         PixelGetColor, newColour, %pixelX%, %pixelY%, RGB
-        MsgBox, %newColour% - %pixelX% - %pixelY%
         if (newColour == targetColour)
             break  ; If the pixel color matches the target color, break the loop
         Sleep, 100  ; Sleep for a short time before checking again to prevent high CPU usage
@@ -227,7 +319,11 @@ waitForColour(pixelX, pixelY, targetColour)
 
 highlightSearch()
 {
-    global magnifierX, magnifierY, binSearchBarX, binSearchBarY 
+    global magnifierX, magnifierY, binSearchBarX, binSearchBarY, backButtonX, backButtonY
+
+    ; already go back to the previous screen, so it can load...
+    Click %backButtonX%, %backButtonY%
+    Sleep, 800
     ; Hihglight the bin search bar again
     Click, %magnifierX%, %magnifierY%
     Sleep, 100 ;
@@ -317,6 +413,7 @@ findAndClickValidIFRow()
             {
                 clickX := record["dateX"]
                 clickY := record["dateY"]
+
                 Click, %clickX%, %clickY%
                 return false
             }
@@ -328,8 +425,21 @@ findAndClickValidIFRow()
         suitableRow := suitableRows[1]
         clickX := suitableRow["dateX"]
         clickY := suitableRow["dateY"]
+
         Click, %clickX%, %clickY%
     }
     return true
 }
 
+getZilverID()
+{
+    global memoX, memoY
+    Sleep, 100
+    memo := retrieveAndProcessText(memoX, memoY)
+
+    if (RegExMatch(memo, "\d+$", match))
+    {
+        return match
+    }
+    return ""
+}
